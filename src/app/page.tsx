@@ -1,5 +1,8 @@
+export const dynamic = "force-dynamic";
+
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -7,8 +10,30 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { ZakatProgress } from "@/components/zakat-progress";
+import { getLatestPeriod, getPaymentSummary, getRecentPayments } from "@/db/queries";
+import { formatCurrency, formatDate } from "@/lib/format";
 
-export default function Home() {
+export default async function Home() {
+  let latestPeriod = null;
+  let summary = null;
+  let recentPayments: Awaited<ReturnType<typeof getRecentPayments>> = [];
+
+  try {
+    latestPeriod = await getLatestPeriod();
+    if (latestPeriod) {
+      summary = await getPaymentSummary(latestPeriod.id);
+      recentPayments = await getRecentPayments(5);
+    }
+  } catch {
+    // DB not connected yet — show static landing
+  }
+
+  const zakatAmount = latestPeriod ? parseFloat(latestPeriod.zakatAmount) : 0;
+  const totalPaid = summary ? parseFloat(summary.totalPaid) : 0;
+  const remaining = Math.max(0, zakatAmount - totalPaid);
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
@@ -17,8 +42,8 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-12">
-        <div className="mb-12 text-center">
+      <main className="container mx-auto px-4 py-8">
+        <div className="mb-8 text-center">
           <h2 className="text-4xl font-bold tracking-tight">
             Zakat Made Simple
           </h2>
@@ -27,6 +52,95 @@ export default function Home() {
           </p>
         </div>
 
+        {/* Current Period Summary */}
+        {latestPeriod && summary && (
+          <div className="mx-auto mb-8 max-w-3xl">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Current Period: {latestPeriod.name}</CardTitle>
+                    <CardDescription>
+                      {formatCurrency(zakatAmount, latestPeriod.currency)} total
+                      Zakat due
+                    </CardDescription>
+                  </div>
+                  {remaining <= 0 && (
+                    <Badge className="bg-green-600">Complete</Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <ZakatProgress
+                  total={zakatAmount}
+                  paid={totalPaid}
+                  currency={latestPeriod.currency}
+                />
+                <div className="flex justify-end">
+                  <Link href={`/periods/${latestPeriod.id}`}>
+                    <Button variant="outline" size="sm">
+                      View Details
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Recent Payments */}
+        {recentPayments.length > 0 && (
+          <div className="mx-auto mb-8 max-w-3xl">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Recent Payments</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {recentPayments.map((payment) => (
+                    <div
+                      key={payment.id}
+                      className="flex items-center justify-between text-sm"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium">
+                          {formatCurrency(payment.amount, payment.currency)}
+                        </span>
+                        {payment.category && (
+                          <Badge variant="secondary" className="text-xs">
+                            {payment.category}
+                          </Badge>
+                        )}
+                        {payment.recipient && (
+                          <span className="text-muted-foreground">
+                            to {payment.recipient}
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-muted-foreground">
+                        {formatDate(payment.date)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {recentPayments.length > 0 && (
+                  <>
+                    <Separator className="my-3" />
+                    <div className="flex justify-end">
+                      <Link href="/periods">
+                        <Button variant="ghost" size="sm">
+                          View All Periods
+                        </Button>
+                      </Link>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Action Cards */}
         <div className="mx-auto grid max-w-3xl gap-6 md:grid-cols-2">
           <Card>
             <CardHeader>
