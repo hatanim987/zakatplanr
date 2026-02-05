@@ -9,6 +9,8 @@ import {
   calculateTotalWealth,
   calculateZakat,
   isNisabMet,
+  getNisabThreshold,
+  voriToGram,
 } from "@/lib/zakat";
 
 export type CalculateFormState = {
@@ -23,8 +25,9 @@ export async function createPeriodWithCalculation(
   const name = formData.get("name") as string;
   const startDate = formData.get("startDate") as string;
   const endDate = formData.get("endDate") as string;
-  const goldPrice = parseFloat(formData.get("goldPrice") as string);
-  const silverPrice = parseFloat(formData.get("silverPrice") as string);
+  // Prices are entered per vori — convert to per gram for calculation
+  const goldPricePerVori = parseFloat(formData.get("goldPrice") as string);
+  const silverPricePerVori = parseFloat(formData.get("silverPrice") as string);
   const currency = (formData.get("currency") as string) || "BDT";
   const notes = formData.get("notes") as string;
 
@@ -45,16 +48,19 @@ export async function createPeriodWithCalculation(
   if (!name) errors.name = "Period name is required";
   if (!startDate) errors.startDate = "Start date is required";
   if (!endDate) errors.endDate = "End date is required";
-  if (!goldPrice || goldPrice <= 0)
-    errors.goldPrice = "Gold price per gram is required";
-  if (!silverPrice || silverPrice <= 0)
-    errors.silverPrice = "Silver price per gram is required";
+  if ((!goldPricePerVori || goldPricePerVori <= 0) && (!silverPricePerVori || silverPricePerVori <= 0))
+    errors.goldPrice = "At least one metal price (gold or silver) is required";
 
   if (Object.keys(errors).length > 0) return { errors };
 
+  // Convert vori prices to gram prices
+  const goldPricePerGram = goldPricePerVori > 0 ? voriToGram(goldPricePerVori) : undefined;
+  const silverPricePerGram = silverPricePerVori > 0 ? voriToGram(silverPricePerVori) : undefined;
+
   const totalWealth = calculateTotalWealth(assets);
-  const { silverNisab } = calculateNisabValues(goldPrice, silverPrice);
-  const nisabCheck = isNisabMet(totalWealth, silverNisab);
+  const { goldNisab, silverNisab } = calculateNisabValues(goldPricePerGram, silverPricePerGram);
+  const nisabThreshold = getNisabThreshold(goldNisab, silverNisab);
+  const nisabCheck = nisabThreshold ? isNisabMet(totalWealth, nisabThreshold) : false;
   const zakatAmount = nisabCheck ? calculateZakat(totalWealth) : 0;
 
   if (!nisabCheck) {

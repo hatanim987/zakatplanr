@@ -24,8 +24,10 @@ import {
   calculateTotalWealth,
   calculateZakat,
   isNisabMet,
-  NISAB_GOLD_GRAMS,
-  NISAB_SILVER_GRAMS,
+  getNisabThreshold,
+  voriToGram,
+  NISAB_GOLD_VORI,
+  NISAB_SILVER_VORI,
   ZAKAT_RATE,
 } from "@/lib/zakat";
 import { formatCurrency } from "@/lib/format";
@@ -109,14 +111,20 @@ export default function CalculatePage() {
       liabilities: parseFloat(liabilities) || 0,
     };
 
-    const gp = parseFloat(goldPrice) || 0;
-    const sp = parseFloat(silverPrice) || 0;
+    const gpVori = parseFloat(goldPrice) || 0;
+    const spVori = parseFloat(silverPrice) || 0;
+    // Convert vori prices to gram prices for calculation
+    const gpGram = gpVori > 0 ? voriToGram(gpVori) : undefined;
+    const spGram = spVori > 0 ? voriToGram(spVori) : undefined;
+
     const totalWealth = calculateTotalWealth(assets);
-    const nisab = gp > 0 && sp > 0 ? calculateNisabValues(gp, sp) : null;
-    const nisabCheck = nisab ? isNisabMet(totalWealth, nisab.silverNisab) : null;
+    const hasAnyPrice = gpGram || spGram;
+    const nisab = hasAnyPrice ? calculateNisabValues(gpGram, spGram) : null;
+    const nisabThreshold = nisab ? getNisabThreshold(nisab.goldNisab, nisab.silverNisab) : null;
+    const nisabCheck = nisabThreshold ? isNisabMet(totalWealth, nisabThreshold) : null;
     const zakatAmount = nisabCheck ? calculateZakat(totalWealth) : 0;
 
-    return { totalWealth, nisab, nisabCheck, zakatAmount };
+    return { totalWealth, nisab, nisabThreshold, nisabCheck, zakatAmount };
   }, [
     cashAndBank, gold, silver, businessAssets, stocks,
     otherInvestments, receivables, liabilities, goldPrice, silverPrice,
@@ -215,26 +223,32 @@ export default function CalculatePage() {
                 <CardHeader>
                   <CardTitle>Current Metal Prices</CardTitle>
                   <CardDescription>
-                    Enter current market price per gram for Nisab calculation.
-                    Nisab = {NISAB_GOLD_GRAMS}g gold or {NISAB_SILVER_GRAMS}g
-                    silver.
+                    Enter current market price per vori (ভরি) for Nisab
+                    calculation. Nisab ≈ {NISAB_GOLD_VORI.toFixed(1)} vori gold
+                    or {NISAB_SILVER_VORI.toFixed(1)} vori silver. At least one
+                    price is required.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-4 sm:grid-cols-2">
                   <CurrencyInput
                     name="goldPrice"
-                    label="Gold Price / gram"
+                    label="Gold Price / vori (ভরি)"
                     value={goldPrice}
                     onChange={setGoldPrice}
                     error={calcState.errors?.goldPrice}
                   />
-                  <CurrencyInput
-                    name="silverPrice"
-                    label="Silver Price / gram"
-                    value={silverPrice}
-                    onChange={setSilverPrice}
-                    error={calcState.errors?.silverPrice}
-                  />
+                  <div className="space-y-1.5">
+                    <CurrencyInput
+                      name="silverPrice"
+                      label="Silver Price / vori (ভরি)"
+                      value={silverPrice}
+                      onChange={setSilverPrice}
+                      error={calcState.errors?.silverPrice}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Optional — leave empty if you don&apos;t have silver
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
 
@@ -345,39 +359,53 @@ export default function CalculatePage() {
                   {preview.nisab && (
                     <>
                       <Separator />
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">
-                          Gold Nisab ({NISAB_GOLD_GRAMS}g)
-                        </span>
-                        <span>{formatCurrency(preview.nisab.goldNisab)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">
-                          Silver Nisab ({NISAB_SILVER_GRAMS}g)
-                        </span>
-                        <span>
-                          {formatCurrency(preview.nisab.silverNisab)}
-                        </span>
-                      </div>
-                      <Separator />
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">
-                          Nisab Met?
-                        </span>
-                        <span
-                          className={
-                            preview.nisabCheck
-                              ? "text-green-600 font-medium"
-                              : "text-red-500 font-medium"
-                          }
-                        >
-                          {preview.nisabCheck === null
-                            ? "—"
-                            : preview.nisabCheck
-                              ? "Yes"
-                              : "No"}
-                        </span>
-                      </div>
+                      {preview.nisab.goldNisab !== null && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Gold Nisab (~{NISAB_GOLD_VORI.toFixed(1)} vori)
+                          </span>
+                          <span>{formatCurrency(preview.nisab.goldNisab)}</span>
+                        </div>
+                      )}
+                      {preview.nisab.silverNisab !== null && (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">
+                            Silver Nisab (~{NISAB_SILVER_VORI.toFixed(1)} vori)
+                          </span>
+                          <span>
+                            {formatCurrency(preview.nisab.silverNisab)}
+                          </span>
+                        </div>
+                      )}
+                      {preview.nisabThreshold && (
+                        <>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">
+                              Nisab Threshold
+                            </span>
+                            <span>{formatCurrency(preview.nisabThreshold)}</span>
+                          </div>
+                          <Separator />
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">
+                              Nisab Met?
+                            </span>
+                            <span
+                              className={
+                                preview.nisabCheck
+                                  ? "text-green-600 font-medium"
+                                  : "text-red-500 font-medium"
+                              }
+                            >
+                              {preview.nisabCheck === null
+                                ? "—"
+                                : preview.nisabCheck
+                                  ? "Yes"
+                                  : "No"}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </>
                   )}
                   <Separator />
