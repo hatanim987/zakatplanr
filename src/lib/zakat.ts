@@ -3,6 +3,8 @@ export const NISAB_GOLD_GRAMS = 87.48;
 export const NISAB_SILVER_GRAMS = 612.36;
 export const ZAKAT_RATE = 0.025; // 2.5%
 export const GRAMS_PER_VORI = 11.664; // 1 vori (ভরি) = 11.664 grams
+export const ANA_PER_VORI = 16; // 1 vori = 16 ana (আনা)
+export const ROTI_PER_ANA = 6; // 1 ana = 6 roti (রতি)
 
 // Nisab thresholds in vori (for display)
 export const NISAB_GOLD_VORI = NISAB_GOLD_GRAMS / GRAMS_PER_VORI; // ~7.5 vori
@@ -33,6 +35,11 @@ export interface WealthBreakdown {
 
 export function voriToGram(pricePerVori: number): number {
   return pricePerVori / GRAMS_PER_VORI;
+}
+
+// Convert vori + ana + roti to total vori (decimal)
+export function toTotalVori(vori: number, ana: number, roti: number): number {
+  return vori + ana / ANA_PER_VORI + roti / (ANA_PER_VORI * ROTI_PER_ANA);
 }
 
 export function calculateNisabValues(

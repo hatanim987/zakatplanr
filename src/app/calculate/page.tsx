@@ -26,6 +26,7 @@ import {
   isNisabMet,
   getNisabThreshold,
   voriToGram,
+  toTotalVori,
   NISAB_GOLD_VORI,
   NISAB_SILVER_VORI,
   ZAKAT_RATE,
@@ -75,6 +76,82 @@ function CurrencyInput({
   );
 }
 
+function VoriQuantityInput({
+  label,
+  vori,
+  onVoriChange,
+  ana,
+  onAnaChange,
+  roti,
+  onRotiChange,
+  computedValue,
+  priceAvailable,
+}: {
+  label: string;
+  vori: string;
+  onVoriChange: (v: string) => void;
+  ana: string;
+  onAnaChange: (v: string) => void;
+  roti: string;
+  onRotiChange: (v: string) => void;
+  computedValue: number;
+  priceAvailable: boolean;
+}) {
+  return (
+    <div className="space-y-2 sm:col-span-2">
+      <Label>{label}</Label>
+      <div className="grid grid-cols-3 gap-2">
+        <div className="space-y-1">
+          <Input
+            type="number"
+            min="0"
+            step="1"
+            placeholder="0"
+            value={vori}
+            onChange={(e) => onVoriChange(e.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">ভরি (vori)</span>
+        </div>
+        <div className="space-y-1">
+          <Input
+            type="number"
+            min="0"
+            max="15"
+            step="1"
+            placeholder="0"
+            value={ana}
+            onChange={(e) => onAnaChange(e.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">আনা (ana)</span>
+        </div>
+        <div className="space-y-1">
+          <Input
+            type="number"
+            min="0"
+            max="5"
+            step="1"
+            placeholder="0"
+            value={roti}
+            onChange={(e) => onRotiChange(e.target.value)}
+          />
+          <span className="text-xs text-muted-foreground">রতি (roti)</span>
+        </div>
+      </div>
+      {computedValue > 0 && priceAvailable && (
+        <p className="text-sm font-medium text-muted-foreground">
+          = {formatCurrency(computedValue)}
+        </p>
+      )}
+      {!priceAvailable &&
+        (parseFloat(vori) > 0 || parseFloat(ana) > 0 || parseFloat(roti) > 0) && (
+          <p className="text-xs text-muted-foreground">
+            Enter metal price above to see value
+          </p>
+        )}
+    </div>
+  );
+}
+
 export default function CalculatePage() {
   const [mode, setMode] = useState<Mode>("calculate");
   const [calcState, calcAction, calcPending] = useActionState(
@@ -88,8 +165,6 @@ export default function CalculatePage() {
 
   // Wealth fields for live calculation
   const [cashAndBank, setCashAndBank] = useState("");
-  const [gold, setGold] = useState("");
-  const [silver, setSilver] = useState("");
   const [businessAssets, setBusinessAssets] = useState("");
   const [stocks, setStocks] = useState("");
   const [otherInvestments, setOtherInvestments] = useState("");
@@ -98,12 +173,42 @@ export default function CalculatePage() {
   const [goldPrice, setGoldPrice] = useState("");
   const [silverPrice, setSilverPrice] = useState("");
 
+  // Gold quantity in vori/ana/roti
+  const [goldVori, setGoldVori] = useState("");
+  const [goldAna, setGoldAna] = useState("");
+  const [goldRoti, setGoldRoti] = useState("");
+
+  // Silver quantity in vori/ana/roti
+  const [silverVori, setSilverVori] = useState("");
+  const [silverAna, setSilverAna] = useState("");
+  const [silverRoti, setSilverRoti] = useState("");
+
+  // Auto-calculate gold BDT value from quantity × price
+  const goldValue = useMemo(() => {
+    const gp = parseFloat(goldPrice) || 0;
+    const v = parseFloat(goldVori) || 0;
+    const a = parseFloat(goldAna) || 0;
+    const r = parseFloat(goldRoti) || 0;
+    if (gp <= 0) return 0;
+    return toTotalVori(v, a, r) * gp;
+  }, [goldPrice, goldVori, goldAna, goldRoti]);
+
+  // Auto-calculate silver BDT value from quantity × price
+  const silverValue = useMemo(() => {
+    const sp = parseFloat(silverPrice) || 0;
+    const v = parseFloat(silverVori) || 0;
+    const a = parseFloat(silverAna) || 0;
+    const r = parseFloat(silverRoti) || 0;
+    if (sp <= 0) return 0;
+    return toTotalVori(v, a, r) * sp;
+  }, [silverPrice, silverVori, silverAna, silverRoti]);
+
   // Live calculation preview
   const preview = useMemo(() => {
     const assets = {
       cashAndBank: parseFloat(cashAndBank) || 0,
-      gold: parseFloat(gold) || 0,
-      silver: parseFloat(silver) || 0,
+      gold: goldValue,
+      silver: silverValue,
       businessAssets: parseFloat(businessAssets) || 0,
       stocks: parseFloat(stocks) || 0,
       otherInvestments: parseFloat(otherInvestments) || 0,
@@ -126,7 +231,7 @@ export default function CalculatePage() {
 
     return { totalWealth, nisab, nisabThreshold, nisabCheck, zakatAmount };
   }, [
-    cashAndBank, gold, silver, businessAssets, stocks,
+    cashAndBank, goldValue, silverValue, businessAssets, stocks,
     otherInvestments, receivables, liabilities, goldPrice, silverPrice,
   ]);
 
@@ -268,18 +373,31 @@ export default function CalculatePage() {
                     value={cashAndBank}
                     onChange={setCashAndBank}
                   />
-                  <CurrencyInput
-                    name="gold"
-                    label="Gold (value)"
-                    value={gold}
-                    onChange={setGold}
+                  <div className="sm:col-span-2" />
+                  <VoriQuantityInput
+                    label="Gold Quantity"
+                    vori={goldVori}
+                    onVoriChange={setGoldVori}
+                    ana={goldAna}
+                    onAnaChange={setGoldAna}
+                    roti={goldRoti}
+                    onRotiChange={setGoldRoti}
+                    computedValue={goldValue}
+                    priceAvailable={(parseFloat(goldPrice) || 0) > 0}
                   />
-                  <CurrencyInput
-                    name="silver"
-                    label="Silver (value)"
-                    value={silver}
-                    onChange={setSilver}
+                  <input type="hidden" name="gold" value={goldValue.toString()} />
+                  <VoriQuantityInput
+                    label="Silver Quantity"
+                    vori={silverVori}
+                    onVoriChange={setSilverVori}
+                    ana={silverAna}
+                    onAnaChange={setSilverAna}
+                    roti={silverRoti}
+                    onRotiChange={setSilverRoti}
+                    computedValue={silverValue}
+                    priceAvailable={(parseFloat(silverPrice) || 0) > 0}
                   />
+                  <input type="hidden" name="silver" value={silverValue.toString()} />
                   <CurrencyInput
                     name="businessAssets"
                     label="Business Assets / Inventory"
