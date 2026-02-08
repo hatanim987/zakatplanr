@@ -1,47 +1,91 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import { db } from "./index";
-import { zakatPayments, zakatPeriods } from "./schema";
+import { assetSnapshots, hawlCycles, zakatPayments } from "./schema";
 
-export async function getAllPeriodsWithSummary() {
-  return await db
-    .select({
-      id: zakatPeriods.id,
-      name: zakatPeriods.name,
-      startDate: zakatPeriods.startDate,
-      endDate: zakatPeriods.endDate,
-      zakatAmount: zakatPeriods.zakatAmount,
-      isManualEntry: zakatPeriods.isManualEntry,
-      currency: zakatPeriods.currency,
-      createdAt: zakatPeriods.createdAt,
-      totalPaid: sql<string>`COALESCE(SUM(${zakatPayments.amount}), '0')`,
-    })
-    .from(zakatPeriods)
-    .leftJoin(zakatPayments, eq(zakatPayments.periodId, zakatPeriods.id))
-    .groupBy(zakatPeriods.id)
-    .orderBy(desc(zakatPeriods.createdAt));
-}
+// ─── Asset Snapshots ───
 
-export async function getPeriodById(id: string) {
-  return await db.query.zakatPeriods.findFirst({
-    where: eq(zakatPeriods.id, id),
+export async function getLatestSnapshot() {
+  return await db.query.assetSnapshots.findFirst({
+    orderBy: desc(assetSnapshots.snapshotDate),
   });
 }
 
-export async function getPaymentsByPeriodId(periodId: string) {
+export async function getAllSnapshots(limit: number = 50) {
+  return await db.query.assetSnapshots.findMany({
+    orderBy: desc(assetSnapshots.snapshotDate),
+    limit,
+  });
+}
+
+export async function getSnapshotsByDateRange(start: Date, end: Date) {
+  return await db
+    .select()
+    .from(assetSnapshots)
+    .where(
+      and(
+        sql`${assetSnapshots.snapshotDate} >= ${start}`,
+        sql`${assetSnapshots.snapshotDate} <= ${end}`
+      )
+    )
+    .orderBy(desc(assetSnapshots.snapshotDate));
+}
+
+// ─── Hawl Cycles ───
+
+export async function getActiveHawlCycle() {
+  return await db.query.hawlCycles.findFirst({
+    where: or(
+      eq(hawlCycles.status, "tracking"),
+      eq(hawlCycles.status, "due")
+    ),
+    orderBy: desc(hawlCycles.createdAt),
+  });
+}
+
+export async function getAllHawlCycles() {
+  return await db
+    .select({
+      id: hawlCycles.id,
+      status: hawlCycles.status,
+      hawlStartDate: hawlCycles.hawlStartDate,
+      hawlStartHijri: hawlCycles.hawlStartHijri,
+      hawlDueDate: hawlCycles.hawlDueDate,
+      hawlDueHijri: hawlCycles.hawlDueHijri,
+      endDate: hawlCycles.endDate,
+      zakatAmount: hawlCycles.zakatAmount,
+      currency: hawlCycles.currency,
+      createdAt: hawlCycles.createdAt,
+      totalPaid: sql<string>`COALESCE(SUM(${zakatPayments.amount}), '0')`,
+    })
+    .from(hawlCycles)
+    .leftJoin(zakatPayments, eq(zakatPayments.hawlCycleId, hawlCycles.id))
+    .groupBy(hawlCycles.id)
+    .orderBy(desc(hawlCycles.createdAt));
+}
+
+export async function getHawlCycleById(id: string) {
+  return await db.query.hawlCycles.findFirst({
+    where: eq(hawlCycles.id, id),
+  });
+}
+
+// ─── Payments ───
+
+export async function getPaymentsByHawlCycleId(hawlCycleId: string) {
   return await db.query.zakatPayments.findMany({
-    where: eq(zakatPayments.periodId, periodId),
+    where: eq(zakatPayments.hawlCycleId, hawlCycleId),
     orderBy: desc(zakatPayments.date),
   });
 }
 
-export async function getPaymentSummary(periodId: string) {
+export async function getHawlPaymentSummary(hawlCycleId: string) {
   const result = await db
     .select({
       totalPaid: sql<string>`COALESCE(SUM(${zakatPayments.amount}), '0')`,
       paymentCount: sql<number>`COUNT(${zakatPayments.id})::int`,
     })
     .from(zakatPayments)
-    .where(eq(zakatPayments.periodId, periodId));
+    .where(eq(zakatPayments.hawlCycleId, hawlCycleId));
 
   return result[0] ?? { totalPaid: "0", paymentCount: 0 };
 }
@@ -54,17 +98,10 @@ export async function getRecentPayments(limit: number = 5) {
       recipient: zakatPayments.recipient,
       category: zakatPayments.category,
       date: zakatPayments.date,
-      periodName: zakatPeriods.name,
-      currency: zakatPeriods.currency,
+      currency: hawlCycles.currency,
     })
     .from(zakatPayments)
-    .innerJoin(zakatPeriods, eq(zakatPayments.periodId, zakatPeriods.id))
+    .innerJoin(hawlCycles, eq(zakatPayments.hawlCycleId, hawlCycles.id))
     .orderBy(desc(zakatPayments.date))
     .limit(limit);
-}
-
-export async function getLatestPeriod() {
-  return await db.query.zakatPeriods.findFirst({
-    orderBy: desc(zakatPeriods.createdAt),
-  });
 }

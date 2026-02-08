@@ -2,16 +2,16 @@
 
 import { useTransition } from "react";
 import { PaymentCard } from "@/components/payment-card";
-import { deletePayment } from "./actions";
+import { deleteHawlPayment } from "./actions";
 import type { ZakatPayment } from "@/db/schema";
 
 export function PaymentList({
   payments,
-  periodId,
+  hawlCycleId,
   currency,
 }: {
   payments: ZakatPayment[];
-  periodId: string;
+  hawlCycleId: string;
   currency: string;
 }) {
   const [isPending, startTransition] = useTransition();
@@ -19,7 +19,7 @@ export function PaymentList({
   function handleDelete(paymentId: string) {
     if (!confirm("Delete this payment?")) return;
     startTransition(() => {
-      deletePayment(paymentId, periodId);
+      deleteHawlPayment(paymentId, hawlCycleId);
     });
   }
 

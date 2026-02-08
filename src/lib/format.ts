@@ -1,3 +1,5 @@
+import { toHijri, formatHijri } from "./hijri";
+
 export function formatCurrency(
   amount: number | string,
   currency: string = "BDT"
@@ -21,6 +23,13 @@ export function formatDate(date: Date | string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+export function formatDateDual(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const gregorian = formatDate(d);
+  const hijri = formatHijri(toHijri(d));
+  return `${gregorian} / ${hijri}`;
 }
 
 export function formatDateRange(

@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { addPayment, type PaymentFormState } from "./actions";
+import { addHawlPayment, type PaymentFormState } from "./actions";
 import { PAYMENT_CATEGORIES } from "@/lib/zakat";
 import { formatCurrency } from "@/lib/format";
 import { Plus } from "lucide-react";
@@ -27,17 +27,17 @@ import { Plus } from "lucide-react";
 const initialState: PaymentFormState = {};
 
 export function AddPaymentDialog({
-  periodId,
+  hawlCycleId,
   remainingAmount,
   currency,
 }: {
-  periodId: string;
+  hawlCycleId: string;
   remainingAmount: number;
   currency: string;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, isPending] = useActionState(
-    addPayment,
+    addHawlPayment,
     initialState
   );
 
@@ -65,7 +65,7 @@ export function AddPaymentDialog({
           </p>
         </DialogHeader>
         <form action={formAction} className="space-y-4">
-          <input type="hidden" name="periodId" value={periodId} />
+          <input type="hidden" name="hawlCycleId" value={hawlCycleId} />
 
           <div className="space-y-1.5">
             <Label htmlFor="amount">Amount</Label>
