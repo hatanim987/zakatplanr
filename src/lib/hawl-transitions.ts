@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { hawlCycles } from "@/db/schema";
 import type { HawlCycle, AssetSnapshot } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { getTrackingCycle } from "@/db/queries";
 import { calculateZakat } from "@/lib/zakat";
 import { toHijri, formatHijriShort, calculateHawlDueDate } from "@/lib/hijri";
 
@@ -29,27 +30,33 @@ export async function transitionTrackingToDue(
     })
     .where(eq(hawlCycles.id, trackingCycle.id));
 
-  // 2. Immediately create new tracking cycle starting from the due date (continuous)
+  // 2. Create new tracking cycle starting from the due date (continuous)
+  // Guard: only create if no tracking cycle already exists (prevents duplicates from race conditions)
   let newTrackingCycleId: string | null = null;
   if (latestSnapshot.nisabMet) {
-    const startDate = trackingCycle.hawlDueDate;
-    const startHijri = toHijri(startDate);
-    const due = calculateHawlDueDate(startDate);
+    const existing = await getTrackingCycle();
+    if (!existing) {
+      const startDate = trackingCycle.hawlDueDate;
+      const startHijri = toHijri(startDate);
+      const due = calculateHawlDueDate(startDate);
 
-    const [newCycle] = await db
-      .insert(hawlCycles)
-      .values({
-        status: "tracking",
-        startSnapshotId: latestSnapshot.id,
-        hawlStartDate: startDate,
-        hawlStartHijri: formatHijriShort(startHijri),
-        hawlDueDate: due.gregorian,
-        hawlDueHijri: formatHijriShort(due.hijri),
-        currency: latestSnapshot.currency,
-      })
-      .returning();
+      const [newCycle] = await db
+        .insert(hawlCycles)
+        .values({
+          status: "tracking",
+          startSnapshotId: latestSnapshot.id,
+          hawlStartDate: startDate,
+          hawlStartHijri: formatHijriShort(startHijri),
+          hawlDueDate: due.gregorian,
+          hawlDueHijri: formatHijriShort(due.hijri),
+          currency: latestSnapshot.currency,
+        })
+        .returning();
 
-    newTrackingCycleId = newCycle.id;
+      newTrackingCycleId = newCycle.id;
+    } else {
+      newTrackingCycleId = existing.id;
+    }
   }
 
   return { dueCycleId: trackingCycle.id, newTrackingCycleId };

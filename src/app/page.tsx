@@ -23,10 +23,10 @@ import {
 } from "@/db/queries";
 import { hawlCycles } from "@/db/schema";
 import { db } from "@/db";
+import { desc, eq } from "drizzle-orm";
 import { computeHawlState, computeOutstandingState, isHawlComplete } from "@/lib/hawl";
 import { transitionTrackingToDue } from "@/lib/hawl-transitions";
 import { calculateZakat } from "@/lib/zakat";
-import { toHijri, formatHijriShort, calculateHawlDueDate } from "@/lib/hijri";
 import { formatCurrency, formatDate, formatDateDual } from "@/lib/format";
 
 export default async function Home() {
@@ -37,6 +37,21 @@ export default async function Home() {
 
   try {
     latestSnapshot = await getLatestSnapshot();
+
+    // Dedup guard: if multiple tracking cycles exist, keep newest, reset the rest
+    const allTracking = await db.query.hawlCycles.findMany({
+      where: eq(hawlCycles.status, "tracking"),
+      orderBy: desc(hawlCycles.createdAt),
+    });
+    if (allTracking.length > 1) {
+      for (const dup of allTracking.slice(1)) {
+        await db
+          .update(hawlCycles)
+          .set({ status: "reset", endDate: new Date(), updatedAt: new Date() })
+          .where(eq(hawlCycles.id, dup.id));
+      }
+    }
+
     trackingCycle = await getTrackingCycle();
 
     // Cascading auto-transition: handle multi-year absence
@@ -51,29 +66,6 @@ export default async function Home() {
       await transitionTrackingToDue(trackingCycle, latestSnapshot);
       trackingCycle = await getTrackingCycle();
       iterations++;
-    }
-
-    // If no tracking cycle exists but user is above Nisab, create one
-    if (!trackingCycle && latestSnapshot && latestSnapshot.nisabMet) {
-      // Check if there are due cycles — start from the most recent due cycle's due date
-      const tempDueCycles = await getDueCycles();
-      const mostRecentDue = tempDueCycles[tempDueCycles.length - 1];
-      const startDate = mostRecentDue
-        ? mostRecentDue.hawlDueDate
-        : latestSnapshot.snapshotDate;
-      const startHijri = toHijri(startDate);
-      const due = calculateHawlDueDate(startDate);
-
-      await db.insert(hawlCycles).values({
-        status: "tracking",
-        startSnapshotId: latestSnapshot.id,
-        hawlStartDate: startDate,
-        hawlStartHijri: formatHijriShort(startHijri),
-        hawlDueDate: due.gregorian,
-        hawlDueHijri: formatHijriShort(due.hijri),
-        currency: latestSnapshot.currency,
-      });
-      trackingCycle = await getTrackingCycle();
     }
 
     dueCyclesRaw = await getDueCycles();

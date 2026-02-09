@@ -153,20 +153,17 @@ export async function createSnapshot(
       // Otherwise no change — cycle continues
     }
   } else {
-    // Below Nisab
-    if (trackingCycle) {
-      // Reset the tracking cycle (due cycles are unaffected)
-      await db
-        .update(hawlCycles)
-        .set({
-          status: "reset",
-          resetSnapshotId: snapshot.id,
-          endDate: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(eq(hawlCycles.id, trackingCycle.id));
-    }
-    // Due cycles unaffected — obligation stands (fiqh)
+    // Below Nisab — reset ALL tracking cycles (handles duplicates)
+    // Due cycles are unaffected — obligation stands (fiqh)
+    await db
+      .update(hawlCycles)
+      .set({
+        status: "reset",
+        resetSnapshotId: snapshot.id,
+        endDate: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(hawlCycles.status, "tracking"));
   }
 
   revalidatePath("/");
