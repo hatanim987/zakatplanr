@@ -41,6 +41,46 @@ export function isSnapshotStale(
   return daysDiff >= staleDays;
 }
 
+export interface DueCycleSummary {
+  cycleId: string;
+  hawlStartDate: Date;
+  hawlDueDate: Date;
+  hawlStartHijri: string;
+  zakatAmount: number;
+  totalPaid: number;
+  remaining: number;
+  currency: string;
+}
+
+export function computeOutstandingState(
+  dueCycles: Array<{
+    id: string;
+    hawlStartDate: Date;
+    hawlDueDate: Date;
+    hawlStartHijri: string;
+    zakatAmount: string | null;
+    totalPaid: string;
+    currency: string;
+  }>
+): { totalOutstanding: number; cycles: DueCycleSummary[] } {
+  const cycles = dueCycles.map((c) => {
+    const zakatAmount = parseFloat(c.zakatAmount ?? "0");
+    const totalPaid = parseFloat(c.totalPaid);
+    return {
+      cycleId: c.id,
+      hawlStartDate: c.hawlStartDate,
+      hawlDueDate: c.hawlDueDate,
+      hawlStartHijri: c.hawlStartHijri,
+      zakatAmount,
+      totalPaid,
+      remaining: Math.max(0, zakatAmount - totalPaid),
+      currency: c.currency,
+    };
+  });
+  const totalOutstanding = cycles.reduce((sum, c) => sum + c.remaining, 0);
+  return { totalOutstanding, cycles };
+}
+
 export function computeHawlState(
   activeCycle: HawlCycle | null | undefined,
   latestSnapshot: AssetSnapshot | null | undefined

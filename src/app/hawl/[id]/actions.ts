@@ -4,9 +4,7 @@ import { db } from "@/db";
 import { zakatPayments, hawlCycles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { getHawlCycleById, getHawlPaymentSummary, getLatestSnapshot } from "@/db/queries";
-import { calculateZakat } from "@/lib/zakat";
-import { toHijri, formatHijriShort, calculateHawlDueDate } from "@/lib/hijri";
+import { getHawlCycleById, getHawlPaymentSummary } from "@/db/queries";
 
 export type PaymentFormState = {
   errors?: Record<string, string>;
@@ -62,7 +60,7 @@ export async function addHawlPayment(
   const newTotalPaid = parseFloat(newSummary.totalPaid);
 
   if (newTotalPaid >= zakatAmount) {
-    // Mark cycle as paid
+    // Mark cycle as paid (tracking cycle was already created at due-transition)
     await db
       .update(hawlCycles)
       .set({
@@ -71,24 +69,6 @@ export async function addHawlPayment(
         updatedAt: new Date(),
       })
       .where(eq(hawlCycles.id, hawlCycleId));
-
-    // Auto-start new cycle if latest snapshot is above Nisab
-    const latestSnapshot = await getLatestSnapshot();
-    if (latestSnapshot && latestSnapshot.nisabMet) {
-      const startDate = new Date();
-      const startHijri = toHijri(startDate);
-      const due = calculateHawlDueDate(startDate);
-
-      await db.insert(hawlCycles).values({
-        status: "tracking",
-        startSnapshotId: latestSnapshot.id,
-        hawlStartDate: startDate,
-        hawlStartHijri: formatHijriShort(startHijri),
-        hawlDueDate: due.gregorian,
-        hawlDueHijri: formatHijriShort(due.hijri),
-        currency: latestSnapshot.currency,
-      });
-    }
   }
 
   revalidatePath(`/hawl/${hawlCycleId}`);

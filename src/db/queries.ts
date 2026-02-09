@@ -1,4 +1,4 @@
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "./index";
 import { assetSnapshots, hawlCycles, zakatPayments } from "./schema";
 
@@ -32,14 +32,34 @@ export async function getSnapshotsByDateRange(start: Date, end: Date) {
 
 // ─── Hawl Cycles ───
 
-export async function getActiveHawlCycle() {
+export async function getTrackingCycle() {
   return await db.query.hawlCycles.findFirst({
-    where: or(
-      eq(hawlCycles.status, "tracking"),
-      eq(hawlCycles.status, "due")
-    ),
+    where: eq(hawlCycles.status, "tracking"),
     orderBy: desc(hawlCycles.createdAt),
   });
+}
+
+export async function getDueCycles() {
+  return await db
+    .select({
+      id: hawlCycles.id,
+      status: hawlCycles.status,
+      hawlStartDate: hawlCycles.hawlStartDate,
+      hawlStartHijri: hawlCycles.hawlStartHijri,
+      hawlDueDate: hawlCycles.hawlDueDate,
+      hawlDueHijri: hawlCycles.hawlDueHijri,
+      zakatAmount: hawlCycles.zakatAmount,
+      wealthAtDue: hawlCycles.wealthAtDue,
+      currency: hawlCycles.currency,
+      createdAt: hawlCycles.createdAt,
+      totalPaid: sql<string>`COALESCE(SUM(${zakatPayments.amount}), '0')`,
+      paymentCount: sql<number>`COUNT(${zakatPayments.id})::int`,
+    })
+    .from(hawlCycles)
+    .leftJoin(zakatPayments, eq(zakatPayments.hawlCycleId, hawlCycles.id))
+    .where(eq(hawlCycles.status, "due"))
+    .groupBy(hawlCycles.id)
+    .orderBy(hawlCycles.hawlStartDate);
 }
 
 export async function getAllHawlCycles() {

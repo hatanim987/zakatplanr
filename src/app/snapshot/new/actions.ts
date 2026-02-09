@@ -2,21 +2,20 @@
 
 import { db } from "@/db";
 import { assetSnapshots, hawlCycles } from "@/db/schema";
-import { getActiveHawlCycle, getLatestSnapshot, getHawlPaymentSummary } from "@/db/queries";
+import { getTrackingCycle } from "@/db/queries";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   calculateNisabValues,
   calculateTotalWealth,
-  calculateZakat,
   getNisabThreshold,
   isNisabMet,
   voriToGram,
-  toTotalVori,
 } from "@/lib/zakat";
 import { toHijri, formatHijriShort, calculateHawlDueDate } from "@/lib/hijri";
 import { isHawlComplete } from "@/lib/hawl";
+import { transitionTrackingToDue } from "@/lib/hawl-transitions";
 
 export type SnapshotFormState = {
   errors?: Record<string, string>;
@@ -104,11 +103,11 @@ export async function createSnapshot(
     .returning();
 
   // ── Hawl state transitions ──
-  const activeCycle = await getActiveHawlCycle();
+  const trackingCycle = await getTrackingCycle();
 
   if (nisabMet) {
-    if (!activeCycle) {
-      // First time above Nisab — start new Hawl cycle
+    if (!trackingCycle) {
+      // No active tracking — start new Hawl cycle
       const startDate = new Date(snapshotDate);
       const startHijri = toHijri(startDate);
       const due = calculateHawlDueDate(startDate);
@@ -122,37 +121,41 @@ export async function createSnapshot(
         hawlDueHijri: formatHijriShort(due.hijri),
         currency,
       });
-    } else if (activeCycle.status === "tracking") {
-      // Check if Hawl is now complete
-      if (isHawlComplete(activeCycle.hawlDueDate, new Date(snapshotDate))) {
-        const zakatAmount = calculateZakat(totalWealth);
+    } else {
+      const snapshotTime = new Date(snapshotDate);
+
+      // If this snapshot is earlier than the cycle start, backdate the Hawl
+      if (snapshotTime < trackingCycle.hawlStartDate) {
+        const newStartHijri = toHijri(snapshotTime);
+        const newDue = calculateHawlDueDate(snapshotTime);
         await db
           .update(hawlCycles)
           .set({
-            status: "due",
-            zakatAmount: zakatAmount.toString(),
-            wealthAtDue: totalWealth.toString(),
+            startSnapshotId: snapshot.id,
+            hawlStartDate: snapshotTime,
+            hawlStartHijri: formatHijriShort(newStartHijri),
+            hawlDueDate: newDue.gregorian,
+            hawlDueHijri: formatHijriShort(newDue.hijri),
             updatedAt: new Date(),
           })
-          .where(eq(hawlCycles.id, activeCycle.id));
+          .where(eq(hawlCycles.id, trackingCycle.id));
+      }
+
+      // Check if Hawl is now complete (use the potentially updated due date)
+      const dueDate = (snapshotTime < trackingCycle.hawlStartDate)
+        ? calculateHawlDueDate(snapshotTime).gregorian
+        : trackingCycle.hawlDueDate;
+
+      if (isHawlComplete(dueDate, snapshotTime)) {
+        // Transition to due + auto-create next tracking cycle
+        await transitionTrackingToDue(trackingCycle, snapshot);
       }
       // Otherwise no change — cycle continues
-    } else if (activeCycle.status === "due") {
-      // Already due — update zakat amount to latest wealth
-      const zakatAmount = calculateZakat(totalWealth);
-      await db
-        .update(hawlCycles)
-        .set({
-          zakatAmount: zakatAmount.toString(),
-          wealthAtDue: totalWealth.toString(),
-          updatedAt: new Date(),
-        })
-        .where(eq(hawlCycles.id, activeCycle.id));
     }
   } else {
     // Below Nisab
-    if (activeCycle && activeCycle.status === "tracking") {
-      // Reset the cycle
+    if (trackingCycle) {
+      // Reset the tracking cycle (due cycles are unaffected)
       await db
         .update(hawlCycles)
         .set({
@@ -161,9 +164,9 @@ export async function createSnapshot(
           endDate: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(hawlCycles.id, activeCycle.id));
+        .where(eq(hawlCycles.id, trackingCycle.id));
     }
-    // If status is "due", obligation stands (fiqh: once Hawl completes, Zakat is due regardless)
+    // Due cycles unaffected — obligation stands (fiqh)
   }
 
   revalidatePath("/");

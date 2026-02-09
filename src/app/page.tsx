@@ -15,60 +15,77 @@ import { AppHeader } from "@/components/app-header";
 import { HawlProgressRing } from "@/components/hawl-progress-ring";
 import { HawlStatusBadge } from "@/components/hawl-status-badge";
 import { StaleReminder } from "@/components/stale-reminder";
-import { ZakatProgress } from "@/components/zakat-progress";
 import {
-  getActiveHawlCycle,
+  getTrackingCycle,
+  getDueCycles,
   getLatestSnapshot,
   getRecentPayments,
-  getHawlPaymentSummary,
 } from "@/db/queries";
 import { hawlCycles } from "@/db/schema";
 import { db } from "@/db";
-import { eq } from "drizzle-orm";
-import { computeHawlState, isHawlComplete } from "@/lib/hawl";
+import { computeHawlState, computeOutstandingState, isHawlComplete } from "@/lib/hawl";
+import { transitionTrackingToDue } from "@/lib/hawl-transitions";
 import { calculateZakat } from "@/lib/zakat";
+import { toHijri, formatHijriShort, calculateHawlDueDate } from "@/lib/hijri";
 import { formatCurrency, formatDate, formatDateDual } from "@/lib/format";
 
 export default async function Home() {
-  let activeCycle = null;
-  let latestSnapshot = null;
+  let trackingCycle: Awaited<ReturnType<typeof getTrackingCycle>> = undefined;
+  let dueCyclesRaw: Awaited<ReturnType<typeof getDueCycles>> = [];
+  let latestSnapshot: Awaited<ReturnType<typeof getLatestSnapshot>> = undefined;
   let recentPayments: Awaited<ReturnType<typeof getRecentPayments>> = [];
-  let paymentSummary = { totalPaid: "0", paymentCount: 0 };
 
   try {
-    activeCycle = (await getActiveHawlCycle()) ?? null;
-    latestSnapshot = (await getLatestSnapshot()) ?? null;
+    latestSnapshot = await getLatestSnapshot();
+    trackingCycle = await getTrackingCycle();
 
-    // Auto-transition: if tracking and due date has passed
-    if (activeCycle && activeCycle.status === "tracking" && latestSnapshot) {
-      if (isHawlComplete(activeCycle.hawlDueDate)) {
-        const totalWealth = parseFloat(latestSnapshot.totalWealth);
-        const zakatAmount = calculateZakat(totalWealth);
-        await db
-          .update(hawlCycles)
-          .set({
-            status: "due",
-            zakatAmount: zakatAmount.toString(),
-            wealthAtDue: totalWealth.toString(),
-            updatedAt: new Date(),
-          })
-          .where(eq(hawlCycles.id, activeCycle.id));
-        activeCycle = (await getActiveHawlCycle()) ?? null;
-      }
+    // Cascading auto-transition: handle multi-year absence
+    // If tracking cycle's due date has passed, transition to due + create next tracking
+    let iterations = 0;
+    while (
+      trackingCycle &&
+      isHawlComplete(trackingCycle.hawlDueDate) &&
+      latestSnapshot &&
+      iterations < 10
+    ) {
+      await transitionTrackingToDue(trackingCycle, latestSnapshot);
+      trackingCycle = await getTrackingCycle();
+      iterations++;
     }
 
-    if (activeCycle) {
-      paymentSummary = await getHawlPaymentSummary(activeCycle.id);
-      recentPayments = await getRecentPayments(5);
+    // If no tracking cycle exists but user is above Nisab, create one
+    if (!trackingCycle && latestSnapshot && latestSnapshot.nisabMet) {
+      // Check if there are due cycles — start from the most recent due cycle's due date
+      const tempDueCycles = await getDueCycles();
+      const mostRecentDue = tempDueCycles[tempDueCycles.length - 1];
+      const startDate = mostRecentDue
+        ? mostRecentDue.hawlDueDate
+        : latestSnapshot.snapshotDate;
+      const startHijri = toHijri(startDate);
+      const due = calculateHawlDueDate(startDate);
+
+      await db.insert(hawlCycles).values({
+        status: "tracking",
+        startSnapshotId: latestSnapshot.id,
+        hawlStartDate: startDate,
+        hawlStartHijri: formatHijriShort(startHijri),
+        hawlDueDate: due.gregorian,
+        hawlDueHijri: formatHijriShort(due.hijri),
+        currency: latestSnapshot.currency,
+      });
+      trackingCycle = await getTrackingCycle();
     }
+
+    dueCyclesRaw = await getDueCycles();
+    recentPayments = await getRecentPayments(5);
   } catch {
     // DB not connected yet
   }
 
-  const hawlState = computeHawlState(activeCycle, latestSnapshot);
-  const zakatAmount = hawlState.zakatAmount ?? 0;
-  const totalPaid = parseFloat(paymentSummary.totalPaid);
-  const remaining = Math.max(0, zakatAmount - totalPaid);
+  const hawlState = computeHawlState(trackingCycle ?? null, latestSnapshot ?? null);
+  const outstanding = computeOutstandingState(dueCyclesRaw);
+  const hasOutstanding = outstanding.totalOutstanding > 0;
+
   const daysSinceUpdate = latestSnapshot
     ? Math.floor(
         (Date.now() - latestSnapshot.snapshotDate.getTime()) /
@@ -98,7 +115,7 @@ export default async function Home() {
           )}
 
           {/* Idle State — No snapshots yet */}
-          {hawlState.status === "idle" && (
+          {hawlState.status === "idle" && !hasOutstanding && (
             <Card>
               <CardHeader>
                 <CardTitle>Get Started</CardTitle>
@@ -116,8 +133,8 @@ export default async function Home() {
             </Card>
           )}
 
-          {/* Hawl Progress */}
-          {hawlState.status !== "idle" && (
+          {/* Hawl Countdown — always shows tracking cycle */}
+          {hawlState.status === "tracking" && (
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
@@ -146,36 +163,75 @@ export default async function Home() {
                         <span>{formatDateDual(hawlState.hawlDueDate)}</span>
                       </div>
                     )}
-                    {hawlState.daysRemaining > 0 &&
-                      hawlState.status === "tracking" && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            Remaining
-                          </span>
-                          <span className="font-medium">
-                            {hawlState.daysRemaining} days
-                          </span>
-                        </div>
-                      )}
-                    {hawlState.status === "due" && zakatAmount > 0 && (
-                      <>
-                        <Separator />
-                        <ZakatProgress
-                          total={zakatAmount}
-                          paid={totalPaid}
-                          currency="BDT"
-                        />
-                        {remaining > 0 && (
-                          <Link href={`/hawl/${hawlState.cycleId}`}>
-                            <Button size="sm" className="w-full">
-                              Start Distributing
-                            </Button>
-                          </Link>
-                        )}
-                      </>
+                    {hawlState.daysRemaining > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Remaining</span>
+                        <span className="font-medium">
+                          {hawlState.daysRemaining} days
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Outstanding Zakat — shows all unpaid due cycles */}
+          {hasOutstanding && (
+            <Card className="border-amber-200 dark:border-amber-800">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Outstanding Zakat</CardTitle>
+                  <Badge variant="secondary">
+                    {outstanding.cycles.length} cycle{outstanding.cycles.length !== 1 ? "s" : ""}
+                  </Badge>
+                </div>
+                <CardDescription>
+                  Total Zakat obligation pending distribution.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="rounded-md bg-amber-50 p-4 dark:bg-amber-950/30">
+                  <p className="text-sm text-muted-foreground">
+                    Total Outstanding
+                  </p>
+                  <p className="text-2xl font-bold">
+                    {formatCurrency(outstanding.totalOutstanding)}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {outstanding.cycles.map((cycle) => (
+                    <Link
+                      key={cycle.cycleId}
+                      href={`/hawl/${cycle.cycleId}`}
+                      className="block"
+                    >
+                      <div className="flex items-center justify-between rounded-md border p-3 transition-colors hover:bg-muted/50">
+                        <div>
+                          <p className="text-sm font-medium">
+                            {formatDate(cycle.hawlStartDate)} —{" "}
+                            {formatDate(cycle.hawlDueDate)}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Paid {formatCurrency(cycle.totalPaid)} of{" "}
+                            {formatCurrency(cycle.zakatAmount)}
+                          </p>
+                        </div>
+                        <span className="font-semibold text-amber-600 dark:text-amber-400">
+                          {formatCurrency(cycle.remaining)}
+                        </span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+
+                <Link href={`/hawl/${outstanding.cycles[0].cycleId}`}>
+                  <Button size="sm" className="w-full">
+                    Start Distributing
+                  </Button>
+                </Link>
               </CardContent>
             </Card>
           )}

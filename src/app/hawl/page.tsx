@@ -13,8 +13,56 @@ import { AppHeader } from "@/components/app-header";
 import { HawlStatusBadge } from "@/components/hawl-status-badge";
 import { ZakatProgress } from "@/components/zakat-progress";
 import { getAllHawlCycles } from "@/db/queries";
-import { formatCurrency, formatDate, formatDateDual } from "@/lib/format";
+import { formatDate, formatDateDual } from "@/lib/format";
 import type { HawlStatus } from "@/lib/hawl";
+
+function CycleCard({
+  cycle,
+  dimmed = false,
+}: {
+  cycle: Awaited<ReturnType<typeof getAllHawlCycles>>[number];
+  dimmed?: boolean;
+}) {
+  const zakatAmount = cycle.zakatAmount ? parseFloat(cycle.zakatAmount) : 0;
+  const totalPaid = parseFloat(cycle.totalPaid);
+
+  return (
+    <Link href={`/hawl/${cycle.id}`}>
+      <Card
+        className={`transition-shadow hover:shadow-md ${dimmed ? "opacity-75" : ""}`}
+      >
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">
+              {formatDate(cycle.hawlStartDate)}
+            </CardTitle>
+            <HawlStatusBadge status={cycle.status as HawlStatus} />
+          </div>
+          <CardDescription>
+            Due: {formatDateDual(cycle.hawlDueDate)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {zakatAmount > 0 ? (
+            <ZakatProgress
+              total={zakatAmount}
+              paid={totalPaid}
+              currency={cycle.currency}
+            />
+          ) : cycle.status === "reset" ? (
+            <p className="text-sm text-muted-foreground">
+              Hawl was reset before completion.
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Hawl in progress — no Zakat due yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </Link>
+  );
+}
 
 export default async function HawlHistoryPage() {
   let cycles: Awaited<ReturnType<typeof getAllHawlCycles>> = [];
@@ -24,6 +72,13 @@ export default async function HawlHistoryPage() {
   } catch {
     // DB not connected
   }
+
+  const activeCycles = cycles.filter(
+    (c) => c.status === "tracking" || c.status === "due"
+  );
+  const completedCycles = cycles.filter(
+    (c) => c.status === "paid" || c.status === "reset"
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -54,46 +109,30 @@ export default async function HawlHistoryPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {cycles.map((cycle) => {
-              const zakatAmount = cycle.zakatAmount
-                ? parseFloat(cycle.zakatAmount)
-                : 0;
-              const totalPaid = parseFloat(cycle.totalPaid);
+          <div className="space-y-8">
+            {activeCycles.length > 0 && (
+              <div>
+                <h3 className="mb-4 text-lg font-semibold">Active</h3>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {activeCycles.map((cycle) => (
+                    <CycleCard key={cycle.id} cycle={cycle} />
+                  ))}
+                </div>
+              </div>
+            )}
 
-              return (
-                <Link key={cycle.id} href={`/hawl/${cycle.id}`}>
-                  <Card className="transition-shadow hover:shadow-md">
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base">
-                          {formatDate(cycle.hawlStartDate)}
-                        </CardTitle>
-                        <HawlStatusBadge
-                          status={cycle.status as HawlStatus}
-                        />
-                      </div>
-                      <CardDescription>
-                        Due: {formatDateDual(cycle.hawlDueDate)}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {zakatAmount > 0 ? (
-                        <ZakatProgress
-                          total={zakatAmount}
-                          paid={totalPaid}
-                          currency={cycle.currency}
-                        />
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          Hawl in progress — no Zakat due yet.
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                </Link>
-              );
-            })}
+            {completedCycles.length > 0 && (
+              <div>
+                <h3 className="mb-4 text-lg font-semibold text-muted-foreground">
+                  Completed
+                </h3>
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {completedCycles.map((cycle) => (
+                    <CycleCard key={cycle.id} cycle={cycle} dimmed />
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
