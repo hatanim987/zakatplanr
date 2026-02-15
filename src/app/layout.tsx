@@ -56,6 +56,9 @@ export const metadata: Metadata = {
   alternates: {
     canonical: "https://zakatplanner.com",
   },
+  verification: {
+    google: "google843172f5d7b9fc12",
+  },
 };
 
 export default function RootLayout({
