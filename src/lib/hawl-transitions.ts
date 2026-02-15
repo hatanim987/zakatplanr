@@ -14,7 +14,8 @@ import { toHijri, formatHijriShort, calculateHawlDueDate } from "@/lib/hijri";
  */
 export async function transitionTrackingToDue(
   trackingCycle: HawlCycle,
-  latestSnapshot: AssetSnapshot
+  latestSnapshot: AssetSnapshot,
+  userId: string
 ): Promise<{ dueCycleId: string; newTrackingCycleId: string | null }> {
   const totalWealth = parseFloat(latestSnapshot.totalWealth);
   const zakatAmount = calculateZakat(totalWealth);
@@ -34,7 +35,7 @@ export async function transitionTrackingToDue(
   // Guard: only create if no tracking cycle already exists (prevents duplicates from race conditions)
   let newTrackingCycleId: string | null = null;
   if (latestSnapshot.nisabMet) {
-    const existing = await getTrackingCycle();
+    const existing = await getTrackingCycle(userId);
     if (!existing) {
       const startDate = trackingCycle.hawlDueDate;
       const startHijri = toHijri(startDate);
@@ -43,6 +44,7 @@ export async function transitionTrackingToDue(
       const [newCycle] = await db
         .insert(hawlCycles)
         .values({
+          userId,
           status: "tracking",
           startSnapshotId: latestSnapshot.id,
           hawlStartDate: startDate,

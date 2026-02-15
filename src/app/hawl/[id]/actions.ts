@@ -2,9 +2,10 @@
 
 import { db } from "@/db";
 import { zakatPayments, hawlCycles } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { getHawlCycleById, getHawlPaymentSummary } from "@/db/queries";
+import { requireUserId } from "@/lib/auth-utils";
 
 export type PaymentFormState = {
   errors?: Record<string, string>;
@@ -15,6 +16,8 @@ export async function addHawlPayment(
   _prevState: PaymentFormState,
   formData: FormData
 ): Promise<PaymentFormState> {
+  const userId = await requireUserId();
+
   const hawlCycleId = formData.get("hawlCycleId") as string;
   const amount = parseFloat(formData.get("amount") as string);
   const recipient = formData.get("recipient") as string;
@@ -31,10 +34,10 @@ export async function addHawlPayment(
 
   if (Object.keys(errors).length > 0) return { errors };
 
-  const cycle = await getHawlCycleById(hawlCycleId);
+  const cycle = await getHawlCycleById(userId, hawlCycleId);
   if (!cycle) return { errors: { amount: "Hawl cycle not found" } };
 
-  const summary = await getHawlPaymentSummary(hawlCycleId);
+  const summary = await getHawlPaymentSummary(userId, hawlCycleId);
   const zakatAmount = parseFloat(cycle.zakatAmount ?? "0");
   const remaining = zakatAmount - parseFloat(summary.totalPaid);
 
@@ -47,6 +50,7 @@ export async function addHawlPayment(
   }
 
   await db.insert(zakatPayments).values({
+    userId,
     hawlCycleId,
     amount: amount.toString(),
     recipient: recipient.trim(),
@@ -56,7 +60,7 @@ export async function addHawlPayment(
   });
 
   // Check if fully paid
-  const newSummary = await getHawlPaymentSummary(hawlCycleId);
+  const newSummary = await getHawlPaymentSummary(userId, hawlCycleId);
   const newTotalPaid = parseFloat(newSummary.totalPaid);
 
   if (newTotalPaid >= zakatAmount) {
@@ -82,12 +86,22 @@ export async function deleteHawlPayment(
   paymentId: string,
   hawlCycleId: string
 ) {
-  await db.delete(zakatPayments).where(eq(zakatPayments.id, paymentId));
+  const userId = await requireUserId();
+
+  // Verify cycle belongs to this user
+  const cycle = await getHawlCycleById(userId, hawlCycleId);
+  if (!cycle) throw new Error("Unauthorized");
+
+  await db.delete(zakatPayments).where(
+    and(
+      eq(zakatPayments.id, paymentId),
+      eq(zakatPayments.userId, userId),
+    )
+  );
 
   // If cycle was "paid", revert to "due" since payment was removed
-  const cycle = await getHawlCycleById(hawlCycleId);
-  if (cycle && cycle.status === "paid") {
-    const summary = await getHawlPaymentSummary(hawlCycleId);
+  if (cycle.status === "paid") {
+    const summary = await getHawlPaymentSummary(userId, hawlCycleId);
     const zakatAmount = parseFloat(cycle.zakatAmount ?? "0");
     const totalPaid = parseFloat(summary.totalPaid);
 

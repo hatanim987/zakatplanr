@@ -5,12 +5,50 @@ import {
   numeric,
   timestamp,
   boolean,
+  integer,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import type { AdapterAccountType } from "next-auth/adapters";
 
-// Asset snapshots — user's wealth at a point in time
+// ─── Auth Tables ───
+
+export const users = pgTable("users", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name"),
+  email: text("email").unique().notNull(),
+  emailVerified: timestamp("email_verified", { withTimezone: true }),
+  image: text("image"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").$type<AdapterAccountType>().notNull(),
+    provider: text("provider").notNull(),
+    providerAccountId: text("provider_account_id").notNull(),
+    refresh_token: text("refresh_token"),
+    access_token: text("access_token"),
+    expires_at: integer("expires_at"),
+    token_type: text("token_type"),
+    scope: text("scope"),
+    id_token: text("id_token"),
+    session_state: text("session_state"),
+  },
+  (account) => [
+    primaryKey({ columns: [account.provider, account.providerAccountId] }),
+  ]
+);
+
+// ─── Asset snapshots — user's wealth at a point in time ───
+
 export const assetSnapshots = pgTable("asset_snapshots", {
   id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
 
   // Wealth breakdown
   cashAndBank: numeric("cash_and_bank", { precision: 15, scale: 2 }).default("0").notNull(),
@@ -42,9 +80,11 @@ export const assetSnapshots = pgTable("asset_snapshots", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Hawl cycles — tracks consecutive time above Nisab
+// ─── Hawl cycles — tracks consecutive time above Nisab ───
+
 export const hawlCycles = pgTable("hawl_cycles", {
   id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
 
   // State: "tracking" | "due" | "paid" | "reset"
   status: text("status").notNull().default("tracking"),
@@ -56,9 +96,9 @@ export const hawlCycles = pgTable("hawl_cycles", {
 
   // Hawl dates (Gregorian + Hijri)
   hawlStartDate: timestamp("hawl_start_date", { withTimezone: true }).notNull(),
-  hawlStartHijri: text("hawl_start_hijri").notNull(), // "1446-08-10"
+  hawlStartHijri: text("hawl_start_hijri").notNull(),
   hawlDueDate: timestamp("hawl_due_date", { withTimezone: true }).notNull(),
-  hawlDueHijri: text("hawl_due_hijri").notNull(), // "1447-08-10"
+  hawlDueHijri: text("hawl_due_hijri").notNull(),
 
   // When cycle ended (reset or paid)
   endDate: timestamp("end_date", { withTimezone: true }),
@@ -78,9 +118,11 @@ export const hawlCycles = pgTable("hawl_cycles", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Individual zakat payments/distributions
+// ─── Individual zakat payments/distributions ───
+
 export const zakatPayments = pgTable("zakat_payments", {
   id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   hawlCycleId: uuid("hawl_cycle_id")
     .references(() => hawlCycles.id, { onDelete: "cascade" })
     .notNull(),
@@ -92,8 +134,34 @@ export const zakatPayments = pgTable("zakat_payments", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-// Relations
+// ─── Relations ───
+
+export const usersRelations = relations(users, ({ many }) => ({
+  accounts: many(accounts),
+  assetSnapshots: many(assetSnapshots),
+  hawlCycles: many(hawlCycles),
+  zakatPayments: many(zakatPayments),
+}));
+
+export const accountsRelations = relations(accounts, ({ one }) => ({
+  user: one(users, {
+    fields: [accounts.userId],
+    references: [users.id],
+  }),
+}));
+
+export const assetSnapshotsRelations = relations(assetSnapshots, ({ one }) => ({
+  user: one(users, {
+    fields: [assetSnapshots.userId],
+    references: [users.id],
+  }),
+}));
+
 export const hawlCyclesRelations = relations(hawlCycles, ({ one, many }) => ({
+  user: one(users, {
+    fields: [hawlCycles.userId],
+    references: [users.id],
+  }),
   startSnapshot: one(assetSnapshots, {
     fields: [hawlCycles.startSnapshotId],
     references: [assetSnapshots.id],
@@ -108,6 +176,10 @@ export const hawlCyclesRelations = relations(hawlCycles, ({ one, many }) => ({
 }));
 
 export const zakatPaymentsRelations = relations(zakatPayments, ({ one }) => ({
+  user: one(users, {
+    fields: [zakatPayments.userId],
+    references: [users.id],
+  }),
   hawlCycle: one(hawlCycles, {
     fields: [zakatPayments.hawlCycleId],
     references: [hawlCycles.id],
@@ -115,6 +187,8 @@ export const zakatPaymentsRelations = relations(zakatPayments, ({ one }) => ({
 }));
 
 // Type exports
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
 export type AssetSnapshot = typeof assetSnapshots.$inferSelect;
 export type NewAssetSnapshot = typeof assetSnapshots.$inferInsert;
 export type HawlCycle = typeof hawlCycles.$inferSelect;

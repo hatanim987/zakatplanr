@@ -23,11 +23,12 @@ import {
 } from "@/db/queries";
 import { hawlCycles } from "@/db/schema";
 import { db } from "@/db";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { computeHawlState, computeOutstandingState, isHawlComplete } from "@/lib/hawl";
 import { transitionTrackingToDue } from "@/lib/hawl-transitions";
 import { calculateZakat } from "@/lib/zakat";
 import { formatCurrency, formatDate, formatDateDual } from "@/lib/format";
+import { requireUserId } from "@/lib/auth-utils";
 
 export default async function Home() {
   let trackingCycle: Awaited<ReturnType<typeof getTrackingCycle>> = undefined;
@@ -35,12 +36,17 @@ export default async function Home() {
   let latestSnapshot: Awaited<ReturnType<typeof getLatestSnapshot>> = undefined;
   let recentPayments: Awaited<ReturnType<typeof getRecentPayments>> = [];
 
+  const userId = await requireUserId();
+
   try {
-    latestSnapshot = await getLatestSnapshot();
+    latestSnapshot = await getLatestSnapshot(userId);
 
     // Dedup guard: if multiple tracking cycles exist, keep newest, reset the rest
     const allTracking = await db.query.hawlCycles.findMany({
-      where: eq(hawlCycles.status, "tracking"),
+      where: and(
+        eq(hawlCycles.status, "tracking"),
+        eq(hawlCycles.userId, userId),
+      ),
       orderBy: desc(hawlCycles.createdAt),
     });
     if (allTracking.length > 1) {
@@ -52,7 +58,7 @@ export default async function Home() {
       }
     }
 
-    trackingCycle = await getTrackingCycle();
+    trackingCycle = await getTrackingCycle(userId);
 
     // Cascading auto-transition: handle multi-year absence
     // If tracking cycle's due date has passed, transition to due + create next tracking
@@ -63,13 +69,13 @@ export default async function Home() {
       latestSnapshot &&
       iterations < 10
     ) {
-      await transitionTrackingToDue(trackingCycle, latestSnapshot);
-      trackingCycle = await getTrackingCycle();
+      await transitionTrackingToDue(trackingCycle, latestSnapshot, userId);
+      trackingCycle = await getTrackingCycle(userId);
       iterations++;
     }
 
-    dueCyclesRaw = await getDueCycles();
-    recentPayments = await getRecentPayments(5);
+    dueCyclesRaw = await getDueCycles(userId);
+    recentPayments = await getRecentPayments(userId, 5);
   } catch {
     // DB not connected yet
   }

@@ -3,7 +3,7 @@
 import { db } from "@/db";
 import { assetSnapshots, hawlCycles } from "@/db/schema";
 import { getTrackingCycle } from "@/db/queries";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -16,6 +16,7 @@ import {
 import { toHijri, formatHijriShort, calculateHawlDueDate } from "@/lib/hijri";
 import { isHawlComplete } from "@/lib/hawl";
 import { transitionTrackingToDue } from "@/lib/hawl-transitions";
+import { requireUserId } from "@/lib/auth-utils";
 
 export type SnapshotFormState = {
   errors?: Record<string, string>;
@@ -26,6 +27,8 @@ export async function createSnapshot(
   _prevState: SnapshotFormState,
   formData: FormData
 ): Promise<SnapshotFormState> {
+  const userId = await requireUserId();
+
   const snapshotDate = formData.get("snapshotDate") as string;
   const goldPriceStr = formData.get("goldPrice") as string;
   const silverPriceStr = formData.get("silverPrice") as string;
@@ -81,6 +84,7 @@ export async function createSnapshot(
   const [snapshot] = await db
     .insert(assetSnapshots)
     .values({
+      userId,
       cashAndBank: cashAndBank.toString(),
       gold: goldValue.toString(),
       silver: silverValue.toString(),
@@ -103,7 +107,7 @@ export async function createSnapshot(
     .returning();
 
   // ── Hawl state transitions ──
-  const trackingCycle = await getTrackingCycle();
+  const trackingCycle = await getTrackingCycle(userId);
 
   if (nisabMet) {
     if (!trackingCycle) {
@@ -113,6 +117,7 @@ export async function createSnapshot(
       const due = calculateHawlDueDate(startDate);
 
       await db.insert(hawlCycles).values({
+        userId,
         status: "tracking",
         startSnapshotId: snapshot.id,
         hawlStartDate: startDate,
@@ -148,12 +153,12 @@ export async function createSnapshot(
 
       if (isHawlComplete(dueDate, snapshotTime)) {
         // Transition to due + auto-create next tracking cycle
-        await transitionTrackingToDue(trackingCycle, snapshot);
+        await transitionTrackingToDue(trackingCycle, snapshot, userId);
       }
       // Otherwise no change — cycle continues
     }
   } else {
-    // Below Nisab — reset ALL tracking cycles (handles duplicates)
+    // Below Nisab — reset ALL tracking cycles for this user (handles duplicates)
     // Due cycles are unaffected — obligation stands (fiqh)
     await db
       .update(hawlCycles)
@@ -163,7 +168,10 @@ export async function createSnapshot(
         endDate: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(hawlCycles.status, "tracking"));
+      .where(and(
+        eq(hawlCycles.status, "tracking"),
+        eq(hawlCycles.userId, userId),
+      ));
   }
 
   revalidatePath("/");

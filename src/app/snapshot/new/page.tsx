@@ -3,12 +3,14 @@ export const dynamic = "force-dynamic";
 import { getLatestSnapshot } from "@/db/queries";
 import { AppHeader } from "@/components/app-header";
 import { SnapshotForm } from "./snapshot-form";
+import { requireUserId } from "@/lib/auth-utils";
 
 export default async function NewSnapshotPage() {
+  const userId = await requireUserId();
   let lastSnapshot = null;
 
   try {
-    lastSnapshot = await getLatestSnapshot();
+    lastSnapshot = await getLatestSnapshot(userId);
   } catch {
     // DB not connected yet
   }

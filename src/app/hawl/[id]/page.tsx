@@ -26,19 +26,21 @@ import type { HawlStatus } from "@/lib/hawl";
 import { ArrowLeft } from "lucide-react";
 import { AddPaymentDialog } from "./add-payment-dialog";
 import { PaymentList } from "./payment-list";
+import { requireUserId } from "@/lib/auth-utils";
 
 export default async function HawlDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const userId = await requireUserId();
   const { id } = await params;
 
-  const cycle = await getHawlCycleById(id);
+  const cycle = await getHawlCycleById(userId, id);
   if (!cycle) notFound();
 
-  const payments = await getPaymentsByHawlCycleId(id);
-  const summary = await getHawlPaymentSummary(id);
+  const payments = await getPaymentsByHawlCycleId(userId, id);
+  const summary = await getHawlPaymentSummary(userId, id);
 
   const zakatAmount = parseFloat(cycle.zakatAmount ?? "0");
   const totalPaid = parseFloat(summary.totalPaid);
@@ -48,7 +50,7 @@ export default async function HawlDetailPage({
 
   // Get snapshots during this cycle
   const endDate = cycle.endDate ?? new Date();
-  const snapshots = await getSnapshotsByDateRange(cycle.hawlStartDate, endDate);
+  const snapshots = await getSnapshotsByDateRange(userId, cycle.hawlStartDate, endDate);
 
   const totalDays = calculateDaysElapsed(cycle.hawlStartDate, cycle.hawlDueDate);
   const daysElapsed = Math.min(

@@ -15,6 +15,7 @@ import { ZakatProgress } from "@/components/zakat-progress";
 import { getAllHawlCycles } from "@/db/queries";
 import { formatDate, formatDateDual } from "@/lib/format";
 import type { HawlStatus } from "@/lib/hawl";
+import { requireUserId } from "@/lib/auth-utils";
 
 function CycleCard({
   cycle,
@@ -65,10 +66,11 @@ function CycleCard({
 }
 
 export default async function HawlHistoryPage() {
+  const userId = await requireUserId();
   let cycles: Awaited<ReturnType<typeof getAllHawlCycles>> = [];
 
   try {
-    cycles = await getAllHawlCycles();
+    cycles = await getAllHawlCycles(userId);
   } catch {
     // DB not connected
   }
