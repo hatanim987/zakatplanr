@@ -9,7 +9,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { AppHeader } from "@/components/app-header";
 import { HawlStatusBadge } from "@/components/hawl-status-badge";
 import { ZakatProgress } from "@/components/zakat-progress";
 import { getAllHawlCycles } from "@/db/queries";
@@ -83,8 +82,6 @@ export default async function HawlHistoryPage() {
   );
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
       <main className="container mx-auto px-4 py-8">
         <div className="mb-8 flex items-center justify-between">
           <div>
@@ -138,6 +135,5 @@ export default async function HawlHistoryPage() {
           </div>
         )}
       </main>
-    </div>
   );
 }

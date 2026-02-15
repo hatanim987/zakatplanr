@@ -1,375 +1,248 @@
-export const dynamic = "force-dynamic";
-
+import { auth } from "@/auth";
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { AppHeader } from "@/components/app-header";
-import { HawlProgressRing } from "@/components/hawl-progress-ring";
-import { HawlStatusBadge } from "@/components/hawl-status-badge";
-import { StaleReminder } from "@/components/stale-reminder";
-import {
-  getTrackingCycle,
-  getDueCycles,
-  getLatestSnapshot,
-  getRecentPayments,
-} from "@/db/queries";
-import { hawlCycles } from "@/db/schema";
-import { db } from "@/db";
-import { and, desc, eq } from "drizzle-orm";
-import { computeHawlState, computeOutstandingState, isHawlComplete } from "@/lib/hawl";
-import { transitionTrackingToDue } from "@/lib/hawl-transitions";
-import { calculateZakat } from "@/lib/zakat";
-import { formatCurrency, formatDate, formatDateDual } from "@/lib/format";
-import { requireUserId } from "@/lib/auth-utils";
+import { LandingHeader } from "@/components/landing-header";
+import { Calculator, Clock, Scale, CreditCard } from "lucide-react";
 
-export default async function Home() {
-  let trackingCycle: Awaited<ReturnType<typeof getTrackingCycle>> = undefined;
-  let dueCyclesRaw: Awaited<ReturnType<typeof getDueCycles>> = [];
-  let latestSnapshot: Awaited<ReturnType<typeof getLatestSnapshot>> = undefined;
-  let recentPayments: Awaited<ReturnType<typeof getRecentPayments>> = [];
+const features = [
+  {
+    icon: Calculator,
+    title: "Zakat Calculator",
+    description:
+      "Calculate your Zakat obligation at 2.5% based on your total zakatable assets including gold, silver, cash, savings, and investments.",
+  },
+  {
+    icon: Clock,
+    title: "Hawl Tracker",
+    description:
+      "Automatically track your Hawl (Islamic lunar year) with Hijri calendar integration. Know exactly when your Zakat becomes due.",
+  },
+  {
+    icon: Scale,
+    title: "Nisab Monitoring",
+    description:
+      "Compare your wealth against the current Nisab threshold based on gold and silver prices. Track whether you meet the minimum for Zakat.",
+  },
+  {
+    icon: CreditCard,
+    title: "Payment Tracking",
+    description:
+      "Record and track your Zakat distributions. See outstanding amounts and payment history across multiple Hawl cycles.",
+  },
+];
 
-  const userId = await requireUserId();
+const steps = [
+  {
+    step: "1",
+    title: "Log Your Assets",
+    description:
+      "Enter your cash, gold, silver, investments, and other zakatable assets. We calculate your total wealth and check it against the Nisab threshold.",
+  },
+  {
+    step: "2",
+    title: "Track Your Hawl",
+    description:
+      "ZakatPlanner automatically tracks your Hawl using the Hijri (Islamic lunar) calendar. You will see a progress ring counting down to your Zakat due date.",
+  },
+  {
+    step: "3",
+    title: "Distribute with Confidence",
+    description:
+      "When Zakat is due, you know exactly how much to pay. Record your payments and track distributions until your obligation is fulfilled.",
+  },
+];
 
-  try {
-    latestSnapshot = await getLatestSnapshot(userId);
+const faqs = [
+  {
+    question: "What is Zakat?",
+    answer:
+      "Zakat is one of the five pillars of Islam. It is an obligatory act of charity requiring Muslims to donate 2.5% of their qualifying wealth annually to those in need. Zakat purifies wealth and helps distribute resources fairly within the community.",
+  },
+  {
+    question: "How is Zakat calculated?",
+    answer:
+      "Zakat is calculated at 2.5% of your total zakatable wealth, which includes cash, savings, gold, silver, business assets, stocks, and investments, minus any debts or liabilities. Your wealth must exceed the Nisab threshold for Zakat to be obligatory.",
+  },
+  {
+    question: "What is Nisab?",
+    answer:
+      "Nisab is the minimum amount of wealth a Muslim must possess before Zakat becomes obligatory. It is defined as the value of 7.5 tola (approximately 87.48 grams) of gold or 52.5 tola (approximately 612.36 grams) of silver. The lower of the two values is typically used as the threshold.",
+  },
+  {
+    question: "What is Hawl?",
+    answer:
+      "Hawl refers to a complete Islamic lunar year (approximately 354 days). For Zakat to become obligatory, your wealth must remain above the Nisab threshold for one full Hawl. If your wealth drops below Nisab during this period, the Hawl resets.",
+  },
+  {
+    question: "Who is eligible to receive Zakat?",
+    answer:
+      "The Quran (9:60) identifies eight categories of Zakat recipients: the poor (al-fuqara), the needy (al-masakin), Zakat administrators, those whose hearts are to be reconciled, freeing captives, debtors, in the cause of Allah, and the wayfarer (stranded traveller).",
+  },
+];
 
-    // Dedup guard: if multiple tracking cycles exist, keep newest, reset the rest
-    const allTracking = await db.query.hawlCycles.findMany({
-      where: and(
-        eq(hawlCycles.status, "tracking"),
-        eq(hawlCycles.userId, userId),
-      ),
-      orderBy: desc(hawlCycles.createdAt),
-    });
-    if (allTracking.length > 1) {
-      for (const dup of allTracking.slice(1)) {
-        await db
-          .update(hawlCycles)
-          .set({ status: "reset", endDate: new Date(), updatedAt: new Date() })
-          .where(eq(hawlCycles.id, dup.id));
-      }
-    }
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: "ZakatPlanner",
+  url: "https://zakatplanner.com",
+  description:
+    "Free Zakat calculator and Hawl tracker based on Islamic Shariah. Calculate Zakat on gold, silver, cash, and investments.",
+  applicationCategory: "FinanceApplication",
+  operatingSystem: "Web",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+};
 
-    trackingCycle = await getTrackingCycle(userId);
+const faqJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: faq.answer,
+    },
+  })),
+};
 
-    // Cascading auto-transition: handle multi-year absence
-    // If tracking cycle's due date has passed, transition to due + create next tracking
-    let iterations = 0;
-    while (
-      trackingCycle &&
-      isHawlComplete(trackingCycle.hawlDueDate) &&
-      latestSnapshot &&
-      iterations < 10
-    ) {
-      await transitionTrackingToDue(trackingCycle, latestSnapshot, userId);
-      trackingCycle = await getTrackingCycle(userId);
-      iterations++;
-    }
-
-    dueCyclesRaw = await getDueCycles(userId);
-    recentPayments = await getRecentPayments(userId, 5);
-  } catch {
-    // DB not connected yet
-  }
-
-  const hawlState = computeHawlState(trackingCycle ?? null, latestSnapshot ?? null);
-  const outstanding = computeOutstandingState(dueCyclesRaw);
-  const hasOutstanding = outstanding.totalOutstanding > 0;
-
-  const daysSinceUpdate = latestSnapshot
-    ? Math.floor(
-        (Date.now() - latestSnapshot.snapshotDate.getTime()) /
-          (1000 * 60 * 60 * 24)
-      )
-    : 0;
+export default async function LandingPage() {
+  const session = await auth();
+  if (session) redirect("/dashboard");
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+      />
 
-      <main className="container mx-auto px-4 py-8">
-        <div className="mb-8 text-center">
-          <h2 className="text-4xl font-bold tracking-tight">
-            Zakat Made Simple
-          </h2>
-          <p className="mt-3 text-lg text-muted-foreground">
-            Track your wealth, monitor your Hawl, and distribute Zakat with
-            confidence.
+      <div className="min-h-screen bg-background">
+        <LandingHeader />
+
+        {/* Hero */}
+        <section className="container mx-auto px-4 py-16 text-center md:py-24">
+          <Badge variant="secondary" className="mb-4">
+            Free Zakat Calculator &amp; Tracker
+          </Badge>
+          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
+            Calculate Your Zakat.
+            <br />
+            Track Your Hawl.
+          </h1>
+          <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+            ZakatPlanner helps you calculate Zakat based on Islamic Shariah,
+            track your Hawl (lunar year), monitor Nisab thresholds, and manage
+            distributions — all in one place.
           </p>
-        </div>
-
-        <div className="mx-auto max-w-3xl space-y-6">
-          {/* Stale Reminder */}
-          {latestSnapshot && hawlState.isStale && (
-            <StaleReminder daysSinceUpdate={daysSinceUpdate} />
-          )}
-
-          {/* Idle State — No snapshots yet */}
-          {hawlState.status === "idle" && !hasOutstanding && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Get Started</CardTitle>
-                <CardDescription>
-                  Log your first asset snapshot to begin Hawl tracking. Zakat
-                  becomes due after your wealth stays above Nisab for 12 lunar
-                  months.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/snapshot/new">
-                  <Button className="w-full">Log Your First Snapshot</Button>
-                </Link>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Hawl Countdown — always shows tracking cycle */}
-          {hawlState.status === "tracking" && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Hawl Progress</CardTitle>
-                  <HawlStatusBadge status={hawlState.status} />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-8">
-                  <HawlProgressRing
-                    percent={hawlState.progressPercent}
-                    daysElapsed={hawlState.daysElapsed}
-                    totalDays={hawlState.totalDays}
-                    status={hawlState.status}
-                  />
-                  <div className="flex-1 space-y-3">
-                    {hawlState.hawlStartDate && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Started</span>
-                        <span>{formatDateDual(hawlState.hawlStartDate)}</span>
-                      </div>
-                    )}
-                    {hawlState.hawlDueDate && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Due Date</span>
-                        <span>{formatDateDual(hawlState.hawlDueDate)}</span>
-                      </div>
-                    )}
-                    {hawlState.daysRemaining > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">Remaining</span>
-                        <span className="font-medium">
-                          {hawlState.daysRemaining} days
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Outstanding Zakat — shows all unpaid due cycles */}
-          {hasOutstanding && (
-            <Card className="border-amber-200 dark:border-amber-800">
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle>Outstanding Zakat</CardTitle>
-                  <Badge variant="secondary">
-                    {outstanding.cycles.length} cycle{outstanding.cycles.length !== 1 ? "s" : ""}
-                  </Badge>
-                </div>
-                <CardDescription>
-                  Total Zakat obligation pending distribution.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-md bg-amber-50 p-4 dark:bg-amber-950/30">
-                  <p className="text-sm text-muted-foreground">
-                    Total Outstanding
-                  </p>
-                  <p className="text-2xl font-bold">
-                    {formatCurrency(outstanding.totalOutstanding)}
-                  </p>
-                </div>
-
-                <div className="space-y-3">
-                  {outstanding.cycles.map((cycle) => (
-                    <Link
-                      key={cycle.cycleId}
-                      href={`/hawl/${cycle.cycleId}`}
-                      className="block"
-                    >
-                      <div className="flex items-center justify-between rounded-md border p-3 transition-colors hover:bg-muted/50">
-                        <div>
-                          <p className="text-sm font-medium">
-                            {formatDate(cycle.hawlStartDate)} —{" "}
-                            {formatDate(cycle.hawlDueDate)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            Paid {formatCurrency(cycle.totalPaid)} of{" "}
-                            {formatCurrency(cycle.zakatAmount)}
-                          </p>
-                        </div>
-                        <span className="font-semibold text-amber-600 dark:text-amber-400">
-                          {formatCurrency(cycle.remaining)}
-                        </span>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-
-                <Link href={`/hawl/${outstanding.cycles[0].cycleId}`}>
-                  <Button size="sm" className="w-full">
-                    Start Distributing
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Current Wealth */}
-          {latestSnapshot && (
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-lg">Current Wealth</CardTitle>
-                  <span className="text-xs text-muted-foreground">
-                    Last updated: {formatDate(latestSnapshot.snapshotDate)}
-                  </span>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Total Wealth</span>
-                  <span className="font-semibold">
-                    {formatCurrency(latestSnapshot.totalWealth)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    Nisab Threshold
-                  </span>
-                  <span>
-                    {formatCurrency(latestSnapshot.nisabThreshold)}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Above Nisab?</span>
-                  <span
-                    className={
-                      latestSnapshot.nisabMet
-                        ? "text-green-600 font-medium"
-                        : "text-red-500 font-medium"
-                    }
-                  >
-                    {latestSnapshot.nisabMet ? "Yes" : "No"}
-                  </span>
-                </div>
-                {latestSnapshot.nisabMet && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      Estimated Zakat (2.5%)
-                    </span>
-                    <span className="font-medium text-primary">
-                      {formatCurrency(
-                        calculateZakat(parseFloat(latestSnapshot.totalWealth))
-                      )}
-                    </span>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Recent Payments */}
-          {recentPayments.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Recent Payments</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {recentPayments.map((payment) => (
-                    <div
-                      key={payment.id}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="font-medium">
-                          {formatCurrency(payment.amount, payment.currency)}
-                        </span>
-                        {payment.category && (
-                          <Badge variant="secondary" className="text-xs">
-                            {payment.category}
-                          </Badge>
-                        )}
-                        {payment.recipient && (
-                          <span className="text-muted-foreground">
-                            to {payment.recipient}
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-muted-foreground">
-                        {formatDate(payment.date)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <Separator className="my-3" />
-                <div className="flex justify-end">
-                  <Link href="/hawl">
-                    <Button variant="ghost" size="sm">
-                      View Hawl History
-                    </Button>
-                  </Link>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Action Cards */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Update Assets</CardTitle>
-                <CardDescription>
-                  Log your current wealth to keep Hawl tracking accurate.
-                  Update monthly for best results.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/snapshot/new">
-                  <Button className="w-full">Update Assets</Button>
-                </Link>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Hawl History</CardTitle>
-                <CardDescription>
-                  View all Hawl cycles, track progress, and manage Zakat
-                  distributions.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Link href="/hawl">
-                  <Button variant="outline" className="w-full">
-                    View History
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
+          <div className="mt-8 flex justify-center gap-4">
+            <Link href="/login">
+              <Button size="lg">Get Started — It&apos;s Free</Button>
+            </Link>
           </div>
-        </div>
-      </main>
-    </div>
+        </section>
+
+        <Separator />
+
+        {/* Features */}
+        <section className="container mx-auto px-4 py-16">
+          <h2 className="mb-12 text-center text-3xl font-bold tracking-tight">
+            Everything You Need to Manage Zakat
+          </h2>
+          <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-2">
+            {features.map((feature) => (
+              <Card key={feature.title}>
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                      <feature.icon className="h-5 w-5 text-primary" />
+                    </div>
+                    <CardTitle className="text-lg">{feature.title}</CardTitle>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    {feature.description}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+
+        <Separator />
+
+        {/* How It Works */}
+        <section className="container mx-auto px-4 py-16">
+          <h2 className="mb-12 text-center text-3xl font-bold tracking-tight">
+            How It Works
+          </h2>
+          <div className="mx-auto grid max-w-4xl gap-8 md:grid-cols-3">
+            {steps.map((step) => (
+              <div key={step.step} className="text-center">
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-lg font-bold text-primary-foreground">
+                  {step.step}
+                </div>
+                <h3 className="mb-2 text-lg font-semibold">{step.title}</h3>
+                <p className="text-sm text-muted-foreground">
+                  {step.description}
+                </p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-12 text-center">
+            <Link href="/login">
+              <Button size="lg" variant="outline">
+                Start Tracking Your Zakat
+              </Button>
+            </Link>
+          </div>
+        </section>
+
+        <Separator />
+
+        {/* FAQ */}
+        <section className="container mx-auto px-4 py-16">
+          <h2 className="mb-12 text-center text-3xl font-bold tracking-tight">
+            Frequently Asked Questions
+          </h2>
+          <div className="mx-auto max-w-3xl space-y-6">
+            {faqs.map((faq) => (
+              <Card key={faq.question}>
+                <CardHeader>
+                  <CardTitle className="text-base">{faq.question}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">{faq.answer}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+
+        <Separator />
+
+        {/* Footer */}
+        <footer className="container mx-auto px-4 py-8 text-center text-sm text-muted-foreground">
+          <p>&copy; {new Date().getFullYear()} ZakatPlanner. Built with care for the Ummah.</p>
+        </footer>
+      </div>
+    </>
   );
 }

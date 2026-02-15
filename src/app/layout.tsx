@@ -14,9 +14,48 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ZakatPlanr - Zakat Calculator & Distribution Tracker",
+  metadataBase: new URL("https://zakatplanner.com"),
+  title: {
+    default: "ZakatPlanner — Free Zakat Calculator & Hawl Tracker",
+    template: "%s | ZakatPlanner",
+  },
   description:
-    "Calculate your Zakat based on Islamic Shariah and track distributions throughout the year.",
+    "Calculate your Zakat, track your Hawl (Islamic lunar year), monitor Nisab thresholds, and manage Zakat distributions. Free online Zakat planner based on Islamic Shariah.",
+  keywords: [
+    "zakat calculator",
+    "zakat planner",
+    "hawl tracker",
+    "nisab calculator",
+    "zakat tracker",
+    "islamic finance",
+    "zakat obligation",
+    "zakat on gold",
+    "zakat on savings",
+    "zakat distribution",
+    "hijri calendar zakat",
+  ],
+  openGraph: {
+    title: "ZakatPlanner — Free Zakat Calculator & Hawl Tracker",
+    description:
+      "Calculate Zakat, track Hawl, monitor Nisab, and manage distributions. Free online Zakat planner based on Islamic Shariah.",
+    url: "https://zakatplanner.com",
+    siteName: "ZakatPlanner",
+    type: "website",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ZakatPlanner — Free Zakat Calculator & Hawl Tracker",
+    description:
+      "Calculate Zakat, track Hawl, monitor Nisab, and manage distributions. Free Zakat planner based on Islamic Shariah.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  alternates: {
+    canonical: "https://zakatplanner.com",
+  },
 };
 
 export default function RootLayout({

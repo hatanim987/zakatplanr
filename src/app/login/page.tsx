@@ -5,13 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function LoginPage() {
   const session = await auth();
-  if (session) redirect("/");
+  if (session) redirect("/dashboard");
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">ZakatPlanr</CardTitle>
+          <CardTitle className="text-2xl font-bold">ZakatPlanner</CardTitle>
           <p className="text-sm text-muted-foreground">
             Sign in to track your Zakat
           </p>
@@ -20,7 +20,7 @@ export default async function LoginPage() {
           <form
             action={async () => {
               "use server";
-              await signIn("google", { redirectTo: "/" });
+              await signIn("google", { redirectTo: "/dashboard" });
             }}
           >
             <Button type="submit" className="w-full" variant="outline">

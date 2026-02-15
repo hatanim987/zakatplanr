@@ -8,8 +8,8 @@ export async function AppHeader() {
   return (
     <header className="border-b">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
-        <Link href="/" className="text-xl font-bold">
-          ZakatPlanr
+        <Link href="/dashboard" className="text-xl font-bold">
+          ZakatPlanner
         </Link>
         <nav className="flex items-center gap-1">
           <Link href="/snapshot/new">
@@ -39,7 +39,7 @@ export async function AppHeader() {
               <form
                 action={async () => {
                   "use server";
-                  await signOut({ redirectTo: "/login" });
+                  await signOut({ redirectTo: "/" });
                 }}
               >
                 <Button variant="ghost" size="sm" type="submit">

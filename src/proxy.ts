@@ -1,11 +1,13 @@
 import { auth } from "@/auth";
 
 export const proxy = auth((req) => {
-  const isAuthRoute =
-    req.nextUrl.pathname.startsWith("/api/auth") ||
-    req.nextUrl.pathname === "/login";
+  const { pathname } = req.nextUrl;
+  const isPublicRoute =
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname.startsWith("/api/auth");
 
-  if (isAuthRoute) return;
+  if (isPublicRoute) return;
 
   if (!req.auth) {
     return Response.redirect(new URL("/login", req.nextUrl.origin));

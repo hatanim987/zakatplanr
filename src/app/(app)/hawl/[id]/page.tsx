@@ -11,7 +11,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { AppHeader } from "@/components/app-header";
 import { HawlStatusBadge } from "@/components/hawl-status-badge";
 import { ZakatProgress } from "@/components/zakat-progress";
 import {
@@ -59,8 +58,6 @@ export default async function HawlDetailPage({
   );
 
   return (
-    <div className="min-h-screen bg-background">
-      <AppHeader />
       <main className="container mx-auto px-4 py-8">
         <Link
           href="/hawl"
@@ -203,6 +200,5 @@ export default async function HawlDetailPage({
           />
         )}
       </main>
-    </div>
   );
 }
