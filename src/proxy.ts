@@ -5,6 +5,8 @@ export const proxy = auth((req) => {
   const isPublicRoute =
     pathname === "/" ||
     pathname === "/login" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/robots.txt" ||
     pathname.startsWith("/api/auth");
 
   if (isPublicRoute) return;
