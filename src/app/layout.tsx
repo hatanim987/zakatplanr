@@ -57,7 +57,7 @@ export const metadata: Metadata = {
     canonical: "https://zakatplanner.com",
   },
   verification: {
-    google: "google843172f5d7b9fc12",
+    google: "Jg_8_JyxDQl8zjowAYVSrPxclPYQJYSNjw1HRs9UflY",
   },
 };
 
